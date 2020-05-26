@@ -1,7 +1,8 @@
 /*
-Arduino calculator v 1.1
+Arduino calculator v 1.2
 By Alexander Mazhirin
 My e-mail: kexogg@gmail.com
+GitHub page: https://github.com/Kexogg/Arduino-Calculator
 Keyboard keys:
 S - sin; O - cos; T - tan; I - PI; R - Square root; F - Factorial; B - Backspace; [ - Switch to first number;
 ] - Switch to second number; L - Toggle backlight; N - Switch numbers; C - Clear; P - Calculate with percentages
@@ -11,7 +12,6 @@ S - sin; O - cos; T - tan; I - PI; R - Square root; F - Factorial; B - Backspace
 #include <Keypad.h>
 // Settings
 #define LCD_Address 0x3f
-#define LCD_Power 13
 #define ROWS 5
 #define COLS 6
 #define rowPins \
@@ -21,26 +21,32 @@ S - sin; O - cos; T - tan; I - PI; R - Square root; F - Factorial; B - Backspace
 char keys[ROWS][COLS] = {
     {'1', '2', '3', '+', '^', 'S'},
     {'4', '5', '6', '-', 'R', 'O'},
-    {'7', '8', '9', '*', 'F', 'T'},
+    {'7', '8', '9', '*', '!', 'T'},
     {'0', 'P', 'C', '/', 'B', 'I'},
     {'=', '.', '[', ']', 'L', 'N'}};
 // Code
 Keypad pad = Keypad(makeKeymap(keys), rowPins, colPins, ROWS, COLS);
 LiquidCrystal_I2C lcd(LCD_Address, 20, 4);
 boolean ModifyingFirstNumber = true; //Are we modifying first number
+boolean SafeToDrawMessage = true;    //Is it safe to draw message
 boolean IsBacklightON = true;        //Is backlight on
 boolean PercentFlag = false;         //Are percentages used
+boolean FactorialFlag = false;       //Is factorial used
 boolean gotResult = false;           //Is result displayed
 String FirstNumber = "";
 String SecondNumber = "";
 String tmp = "";
+long factorialResult;
+long resultLong;
+int factorialCount;
 double result = 0;
 char action = ' ';
 
 void setup()
 {
-    pinMode(LCD_Power, OUTPUT); //Turn LCD on
-    digitalWrite(LCD_Power, HIGH);
+
+    pinMode(13, OUTPUT); //Turn LCD on
+    digitalWrite(13, HIGH);
     lcd.init();      //Initialise LCD
     lcd.backlight(); //Turn LCD backlight on
     redraw();        //Draw UI
@@ -49,31 +55,41 @@ void setup()
 void loop()
 {
     char Key = pad.getKey(); //Get key
-    if (Key != NO_KEY)       //If key pressed
+    if (Key != NO_KEY)       //If key is pressed
     {
         if (isDigit(Key) && !gotResult) //If key is a digit
         {
             if (ModifyingFirstNumber) //Check which number to modify
             {
-                if (FirstNumber.length() < 19) //Don't add new digit if number can't fit on display
+                if (FirstNumber.length() <= 19) //Don't add new digit if number can't fit on display
                 {
                     FirstNumber = FirstNumber + Key; //Modify number
                     lcd.print(Key);                  //Print new digit
                 }
+                else
+                {
+                    drawMessage("ERROR: Overflow");
+                }
             }
             else
             {
-                if (SecondNumber.length() < 19) //Don't add new digit if number can't fit on display
+                if (SecondNumber.length() <= 19) //Don't add new digit if number can't fit on display
                 {
                     SecondNumber = SecondNumber + Key; //Modify number
                     lcd.print(Key);                    //Print new digit
+                }
+                else
+                {
+                    drawMessage("ERROR: Overflow");
                 }
             }
         }
         if (String("+-*/^").indexOf(Key) != -1) //If key is operator
         {
-            gotResult = false;
+            SafeToDrawMessage = true;
+            FactorialFlag = false;
             PercentFlag = false;
+            gotResult = false;
             if (!ModifyingFirstNumber) //If modifying second number
             {                          //Change operator
                 action = Key;
@@ -86,26 +102,30 @@ void loop()
                 redraw();
             }
         }
-        if (String("RSOTF").indexOf(Key) != -1 && FirstNumber != "") //If key is operator that doesn't require second number
+        if (String("RSOT!").indexOf(Key) != -1 && FirstNumber != "") //If key is operator that doesn't require second number
         {
+            SecondNumber = "";
+            SafeToDrawMessage = true;
+            FactorialFlag = false;
             gotResult = false;
             action = Key;
             calculate(); //Skip second number and calculate result
         }
-        switch (Key) //Special cases
+        if (!gotResult) //Special cases
         {
-        case '=': //Calculate result
-            if (action != ' ' && !gotResult) //If operator set and result is not displayed
+            switch (Key)
             {
-                calculate();
-            }
-            break;
-        case 'C': //Clear display and data
-            clear();
-            break;
-        case 'B': //Remove last symbol
-            if (!gotResult) //If result is not displayed
-            {
+            case '=':              //Calculate result
+                if (action != ' ') //If operator set
+                {
+                    calculate();
+                }
+                else
+                {
+                    drawMessage("ERROR: No operation");
+                }
+                break;
+            case 'B':                     //Remove last symbol
                 if (ModifyingFirstNumber) //Check which number to modify
                 {
                     FirstNumber.remove(FirstNumber.length() - 1); //Remove last symbol
@@ -116,71 +136,51 @@ void loop()
                     SecondNumber.remove(SecondNumber.length() - 1); //Remove last symbol
                     redraw();                                       //Update display
                 }
-            }
-            break;
-        case '.': // Add point to current number
-            if (ModifyingFirstNumber) //Check which number to modify
-            {
-                if (FirstNumber.length() < 18 && (FirstNumber.indexOf('.') == -1)) //If point isn't present in number
-                {                                                                  // and length of number is < 18
-                    FirstNumber = FirstNumber + Key;                               //Add point
-                    lcd.print(Key);                                                //Print point
+                break;
+            case '.':                     // Add point to current number
+                if (ModifyingFirstNumber) //Check which number to modify
+                {
+                    if (FirstNumber.length() < 18 && (FirstNumber.indexOf('.') == -1)) //If point isn't present in number
+                    {                                                                  //and length of number is < 18
+                        FirstNumber = FirstNumber + Key;                               //Add point
+                        lcd.print(Key);                                                //Print point
+                    }
                 }
-            }
-            else
-            {
-                if (SecondNumber.length() < 18 && (SecondNumber.indexOf('.') == -1)) //If point isn't present in number
-                {                                                                    // and length of number is < 18
-                    SecondNumber = SecondNumber + Key;                               //Add point
-                    lcd.print(Key);                                                  //Print point
+                else
+                {
+                    if (SecondNumber.length() < 18 && (SecondNumber.indexOf('.') == -1)) //If point isn't present in number
+                    {                                                                    // and length of number is < 18
+                        SecondNumber = SecondNumber + Key;                               //Add point
+                        lcd.print(Key);                                                  //Print point
+                    }
                 }
-            }
-            break;
-        case 'P': //Use percentages
-            calculatePercentages(); //Calculate result with percentages
-            break;
-        case '[': //Switch to first number
-            if (!gotResult && !ModifyingFirstNumber) //If result isn't displayed and not modifying first number
-            {
-                ModifyingFirstNumber = true;       //Switch to first number
-                DrawMessage("Editing 1st number"); //Display message
-            }
-            break;
-        case ']': //Switch to second number
-            if (!gotResult && ModifyingFirstNumber) //If result isn't displayed and modifying first number
-            {
-                ModifyingFirstNumber = false;      //Switch to second number
-                DrawMessage("Editing 2nd number"); //Display message
-            }
-            break;
-        case 'L': //Toggle backlight
-            if (IsBacklightON) //If backlight is ON
-            {
-                lcd.noBacklight(); //Turn backlight off
-                IsBacklightON = false;
-                DrawMessage("Backlight OFF"); //Display message
-            }
-            else
-            {
-                lcd.backlight(); //Turn backlight on
-                IsBacklightON = true;
-                DrawMessage("Backlight ON"); //Display message
-            }
-            break;
-        case 'N': //Switch numbers
-            if (!gotResult) //If result isn't displayed
-            {
+                break;
+            case 'P':                   //Use percentages
+                calculatePercentages(); //Calculate result with percentages
+                break;
+            case '[':                      //Switch to first number
+                if (!ModifyingFirstNumber) //If modifying first number
+                {
+                    ModifyingFirstNumber = true;       //Switch to first number
+                    drawMessage("Editing 1st number"); //Display message
+                }
+                break;
+            case ']':                     //Switch to second number
+                if (ModifyingFirstNumber) //If modifying first number
+                {
+                    ModifyingFirstNumber = false;      //Switch to second number
+                    drawMessage("Editing 2nd number"); //Display message
+                }
+                break;
+            case 'N':              //Switch numbers
                 tmp = FirstNumber; //Switch numbers
                 FirstNumber = SecondNumber;
                 SecondNumber = tmp;
                 redraw();
-                DrawMessage("Switched numbers"); //Display message
+                drawMessage("Switched numbers"); //Display message
                 tmp = "";
-            }
-            break;
-        case 'I': //Use PI as current number
-            if (!gotResult) //If result isn't displayed
-            {
+                break;
+            case 'I':                     //Use PI as current number
                 if (ModifyingFirstNumber) //Check which number to modify
                 {
                     FirstNumber = tmp + PI; //Print PI
@@ -189,7 +189,30 @@ void loop()
                 {
                     SecondNumber = tmp + PI; //Print PI
                 }
+            default:
+                break;
             }
+        }
+
+        switch (Key)
+        {
+        case 'L':              //Toggle backlight
+            if (IsBacklightON) //If backlight is ON
+            {
+                lcd.noBacklight(); //Turn backlight off
+                IsBacklightON = false;
+                drawMessage("Backlight OFF"); //Display message
+            }
+            else
+            {
+                lcd.backlight(); //Turn backlight on
+                IsBacklightON = true;
+                drawMessage("Backlight ON"); //Display message
+            }
+            break;
+        case 'C': //Clear display and data
+            clear();
+            break;
         default:
             break;
         }
@@ -201,56 +224,56 @@ void calculate() //Calculate result
     switch (action)
     {
     case '+':
-        result = FirstNumber.toFloat() + SecondNumber.toFloat();
-        drawResult();
+        result = FirstNumber.toDouble() + SecondNumber.toDouble();
+        drawResultUI();
         break;
     case '-':
-        result = FirstNumber.toFloat() - SecondNumber.toFloat();
-        drawResult();
+        result = FirstNumber.toDouble() - SecondNumber.toDouble();
+        drawResultUI();
         break;
     case '*':
-        result = FirstNumber.toFloat() * SecondNumber.toFloat();
-        drawResult();
+        result = FirstNumber.toDouble() * SecondNumber.toDouble();
+        drawResultUI();
         break;
     case '/':
-        if (SecondNumber.toFloat() == 0) //If second number equals 0
+        if (SecondNumber.toDouble() == 0) //If second number equals 0
         {
-            DrawMessage("ERROR: Division by 0"); //Display error message
+            drawMessage("ERROR: Division by 0"); //Display error message
         }
         else
         {
-            result = FirstNumber.toFloat() / SecondNumber.toFloat();
-            drawResult();
+            result = FirstNumber.toDouble() / SecondNumber.toDouble();
+            drawResultUI();
         }
         break;
     case '^':
-        result = pow(FirstNumber.toFloat(), SecondNumber.toFloat());
-        drawResult();
+        result = pow(FirstNumber.toDouble(), SecondNumber.toDouble());
+        drawResultUI();
         break;
     case 'R': //sqrt
-        result = sqrtf(FirstNumber.toFloat());
+        result = sqrtf(FirstNumber.toDouble());
         drawSNResult();
         break;
     case 'S': //sin
-        result = sin(radians(FirstNumber.toFloat()));
+        result = sin(radians(FirstNumber.toDouble()));
         drawSNResult();
         break;
     case 'O': //cos
-        result = cos(radians(FirstNumber.toFloat()));
+        result = cos(radians(FirstNumber.toDouble()));
         drawSNResult();
         break;
     case 'T': //tg
-        result = tan(radians(FirstNumber.toFloat()));
+        result = tan(radians(FirstNumber.toDouble()));
         drawSNResult();
         break;
-    case 'F':
-        if (FirstNumber.toInt() < 15 && FirstNumber.toInt() > -15) //Arduino can't calculate factorial for numbers larger than 14
-        {                                                          //or less than -14
+    case '!':
+        if (FirstNumber.toInt() < 15 && FirstNumber.toInt() > -15) //Arduino can't calculate factorial for
+        {                                                          //numbers larger than 14 or less than -14
             calculateFactorial();
         }
         else
         {
-            DrawMessage("ERROR: Overflow"); //Display error message if number is <-14 or >14
+            drawMessage("ERROR: Overflow"); //Display error message if number is <-14 or >14
         }
         break;
     default:
@@ -264,20 +287,20 @@ void calculatePercentages() //Calculate result for expression with percentages
     switch (action)     //Calculate and draw result
     {
     case '+':
-        result = FirstNumber.toFloat() + ((FirstNumber.toFloat() / 100 * SecondNumber.toFloat()));
-        drawResult();
+        result = FirstNumber.toDouble() + ((FirstNumber.toDouble() / 100 * SecondNumber.toDouble()));
+        drawResultUI();
         break;
     case '-':
-        result = FirstNumber.toFloat() - ((FirstNumber.toFloat() / 100 * SecondNumber.toFloat()));
-        drawResult();
+        result = FirstNumber.toDouble() - ((FirstNumber.toDouble() / 100 * SecondNumber.toDouble()));
+        drawResultUI();
         break;
     case '*':
-        result = (FirstNumber.toFloat() / 100 * SecondNumber.toFloat());
-        drawResult();
+        result = (FirstNumber.toDouble() / 100 * SecondNumber.toDouble());
+        drawResultUI();
         break;
     case '/':
-        result = (FirstNumber.toFloat() / 100 * SecondNumber.toFloat());
-        drawResult();
+        result = (FirstNumber.toDouble() / 100 * SecondNumber.toDouble());
+        drawResultUI();
         break;
     default:
         break;
@@ -286,88 +309,93 @@ void calculatePercentages() //Calculate result for expression with percentages
 
 void calculateFactorial() //Calculate factorial
 {
-    long factorialresult = (FirstNumber.toInt());                                        //Declare variable with diffrent data type
-    for (int factorialCount = 1; factorialCount < FirstNumber.toInt(); factorialCount++) //Calculate factorial
+    factorialResult = (FirstNumber.toInt()); //Declare variable with diffrent data type
+    if (factorialResult == 0)                //Exception: 0! = 1
     {
-        factorialresult = factorialresult * factorialCount; //n! = 1 * 2 * 3  * ... * n
-    }
-    lcd.clear(); //Display result
-    lcd.print(FirstNumber);
-    lcd.print('!');
-    lcd.setCursor(0, 1);
-    lcd.print('=');
-    if (factorialresult == 0) //Exception: 0! = 1
-    {
-        lcd.print('1');
+        factorialResult = 1;
     }
     else
     {
-        lcd.print(factorialresult);
+        for (factorialCount = 1; factorialCount < FirstNumber.toInt(); factorialCount++) //Calculate factorial
+        {
+            factorialResult = factorialResult * factorialCount; //n! = 1 * 2 * 3  * ... * n
+        }
     }
-    gotResult = true;
-    FirstNumber = String(factorialresult);
-    SecondNumber = "";
+    FactorialFlag = true;
+    drawResultUI();
 }
 
-void drawResult() //Display result
+void drawResultUI()
 {
-    lcd.clear();
-    lcd.home();
-    if ((FirstNumber.length()) + (SecondNumber.length()) + 1 <= 20) //If both numbers can fit on same lane
+
+    if (isnan(result) || isinf(result) || result > 4294967040 || result < -4294967040)
     {
-        lcd.print(FirstNumber); //Draw layout for short numbers
-        lcd.print(action);
-        lcd.print(SecondNumber);
-        if (PercentFlag)
-        {
-            lcd.print('%');
-            PercentFlag = false;
-        }
-        lcd.setCursor(0, 1);
-        lcd.print('=');
-        lcd.print(result);
+        drawMessage("ERROR: Overflow");
     }
     else
     {
-        redraw(); //If not, draw layout for long numbers
-        lcd.setCursor(0, 3);
-        lcd.print('=');
-        lcd.print(result);
+        lcd.clear();
+        lcd.home();
+        if ((FirstNumber.length()) + (SecondNumber.length()) + 1 <= 20) //If both numbers can fit on same lane
+        {
+            lcd.print(FirstNumber); //Draw layout for short numbers
+            lcd.print(action);
+            lcd.print(SecondNumber);
+            if (PercentFlag)
+            {
+                lcd.print('%');
+                PercentFlag = false;
+            }
+            lcd.setCursor(0, 1);
+            lcd.print('=');
+            printResult();
+        }
+        else
+        {
+            redraw(); //If not, draw layout for long numbers
+            lcd.setCursor(0, 3);
+            lcd.print('=');
+            printResult();
+            SafeToDrawMessage = false;
+        }
     }
-    gotResult = true;
-    FirstNumber = String(result);
-    SecondNumber = "";
 }
 
 void drawSNResult() //Display result for expression which requires only one number
 {
-    lcd.home();
-    lcd.clear();    //Clear display
-    switch (action) //Display operator
+    if (isnan(result) || isinf(result) || result > 4294967040 || result < -4294967040)
     {
-    case 'R':
-        lcd.print("sqrt(");
-        break;
-    case 'S':
-        lcd.print("sin(");
-        break;
-    case 'O':
-        lcd.print("cos(");
-        break;
-    case 'T':
-        lcd.print("tg(");
-        break;
-    default:
-        break;
+        drawMessage("ERROR: Overflow");
     }
-    lcd.print(FirstNumber); //Display first number
-    lcd.print(')');
-    lcd.setCursor(0, 1);
-    lcd.print('=');
-    lcd.print(result); //Display result
-    gotResult = true;
-    FirstNumber = String(result);
-    SecondNumber = "";
+    else
+    {
+        lcd.home();
+        lcd.clear();    //Clear display
+        switch (action) //Display operator
+        {
+        case 'R':
+            lcd.print("sqrt(");
+            break;
+        case 'S':
+            lcd.print("sin(");
+            break;
+        case 'O':
+            lcd.print("cos(");
+            break;
+        case 'T':
+            lcd.print("tg(");
+            break;
+        default:
+            break;
+        }
+        lcd.print(FirstNumber); //Display first number
+        lcd.print(')');
+        lcd.setCursor(0, 1);
+        lcd.print('=');
+        printResult(); //Display result
+        FirstNumber = String(result);
+        SecondNumber = "";
+    }
 }
 
 void clear() //Reset data and update display
@@ -381,12 +409,14 @@ void clear() //Reset data and update display
     result = 0;
     action = ' ';
     ModifyingFirstNumber = true;
+    SafeToDrawMessage = true;
+    FactorialFlag = false;
     gotResult = false;
     PercentFlag = false;
-    DrawMessage("Cleared"); //Display message
+    drawMessage("Cleared"); //Display message
 }
 
-void redraw() //Update display (redraw)
+void redraw() //Update display (redraw default layout)
 {
     lcd.clear();
     lcd.setCursor(0, 0);
@@ -401,6 +431,12 @@ void redraw() //Update display (redraw)
         lcd.print('%');
         PercentFlag = false;
     }
+    setCursor();
+    SafeToDrawMessage = true;
+}
+
+void setCursor()
+{
     if (ModifyingFirstNumber) //Set cursor to correct position
     {
         lcd.setCursor(FirstNumber.length(), 0);
@@ -411,14 +447,38 @@ void redraw() //Update display (redraw)
     }
 }
 
-int DrawMessage(String tmp) //Display message
+void printResult() //Print result in long data type (if possible)
 {
-    if (!gotResult) //If result isn't displayed
+    resultLong = result;
+    if (resultLong == result)
+    {
+        lcd.print(resultLong);
+        FirstNumber = String(resultLong);
+    }
+    else
+    {
+        lcd.print(result);
+        FirstNumber = String(result);
+    }
+    if (FactorialFlag)
+    {
+        lcd.print(factorialResult);
+        FirstNumber = String(factorialResult);
+    }
+    SecondNumber = "";
+    gotResult = true;
+}
+
+int drawMessage(String tmp) //Display message
+{
+    if (SafeToDrawMessage) //If it's safe to disply message
     {
         lcd.setCursor(0, 3);
-        lcd.print(tmp); //Display message
-        delay(500);     //FIXME: delay interrupting program
-        redraw();       //Erase message
+        lcd.print(tmp);      //Display message
+        delay(500);          //FIXME: delay interrupting program
+        lcd.setCursor(0, 3); //Erase message
+        lcd.print("                    ");
+        setCursor(); //Set cursor to correct position
         tmp = "";
     }
 }

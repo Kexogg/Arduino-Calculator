@@ -10,5 +10,15 @@ This calculator includes basic functionality (+, - , ×, /, etc) and some extra 
 | 0 | % |  С |  / | <- |   Pi   |
 | = | . | E1 | E2 | BL | Switch |
 
-E1 & E2 buttons are used to switch between numbers; BL button is used to toggle backlight. For more information, see sketch itself
-This sketch requires LiquidCrystal_I2C, Keypad and Wire libraries
+Hardware components:
+    1. Arduino Nano
+    2. 2004 display
+    3. Self-made keyboard (5*6)
+
+E1 & E2 buttons are used to switch between numbers; BL button is used to toggle backlight. For more information, see sketch itself.
+This sketch requires LiquidCrystal_I2C, Keypad and Wire libraries.
+
+TODO:
+    1. Fix issues with large numbers
+    2. Implement RAD/DEG switch
+    3. Implement automatic switch between long and double data types
