@@ -4,7 +4,7 @@ By Alexander Mazhirin
 My e-mail: kexogg@gmail.com
 GitHub page: https://github.com/Kexogg/Arduino-Calculator
 Keyboard keys:
-S - sin; O - cos; T - tan; I - PI; R - Square root; F - Factorial; B - Backspace; [ - Switch to first number;
+S - sin; O - cos; T - tan; D - Switch between RAD and DEG; R - Square root; F - Factorial; B - Backspace; [ - Switch to first number;
 ] - Switch to second number; L - Toggle backlight; N - Switch numbers; C - Clear; P - Calculate with percentages
 */
 #include <Wire.h>
@@ -22,29 +22,31 @@ char keys[ROWS][COLS] = {
     {'1', '2', '3', '+', '^', 'S'},
     {'4', '5', '6', '-', 'R', 'O'},
     {'7', '8', '9', '*', '!', 'T'},
-    {'0', 'P', 'C', '/', 'B', 'I'},
+    {'0', 'P', 'C', '/', 'B', 'D'},
     {'=', '.', '[', ']', 'L', 'N'}};
 // Code
 Keypad pad = Keypad(makeKeymap(keys), rowPins, colPins, ROWS, COLS);
 LiquidCrystal_I2C lcd(LCD_Address, 20, 4);
-boolean ModifyingFirstNumber = true; //Are we modifying first number
-boolean SafeToDrawMessage = true;    //Is it safe to draw message
-boolean IsBacklightON = true;        //Is backlight on
-boolean PercentFlag = false;         //Are percentages used
-boolean FactorialFlag = false;       //Is factorial used
-boolean gotResult = false;           //Is result displayed
+bool ModifyingFirstNumber = true; //Are we modifying first number
+bool SafeToDrawMessage = true;    //Is it safe to draw message
+bool IsBacklightON = true;        //Is backlight on
+bool PercentFlag = false;         //Are percentages used
+bool FactorialFlag = false;       //Is factorial used
+bool gotResult = false;           //Is result displayed
+bool useRAD = false;              //Are we using RAD
 String FirstNumber = "";
 String SecondNumber = "";
 String tmp = "";
+String SNE = "RSOT!"; //List of single number expressions
 long factorialResult;
 long resultLong;
 int factorialCount;
 double result = 0;
+double trigonometryConvert = 0;
 char action = ' ';
 
 void setup()
 {
-
     pinMode(13, OUTPUT); //Turn LCD on
     digitalWrite(13, HIGH);
     lcd.init();      //Initialise LCD
@@ -102,7 +104,7 @@ void loop()
                 redraw();
             }
         }
-        if (String("RSOT!").indexOf(Key) != -1 && FirstNumber != "") //If key is operator that doesn't require second number
+        if (SNE.indexOf(Key) != -1 && FirstNumber != "") //If key is operator that doesn't require second number
         {
             SecondNumber = "";
             SafeToDrawMessage = true;
@@ -172,28 +174,18 @@ void loop()
                     drawMessage("Editing 2nd number"); //Display message
                 }
                 break;
-            case 'N':              //Switch numbers
-                tmp = FirstNumber; //Switch numbers
+            case 'N': //Switch numbers
+                tmp = FirstNumber;
                 FirstNumber = SecondNumber;
                 SecondNumber = tmp;
                 redraw();
                 drawMessage("Switched numbers"); //Display message
                 tmp = "";
                 break;
-            case 'I':                     //Use PI as current number
-                if (ModifyingFirstNumber) //Check which number to modify
-                {
-                    FirstNumber = tmp + PI; //Print PI
-                }
-                else
-                {
-                    SecondNumber = tmp + PI; //Print PI
-                }
             default:
                 break;
             }
         }
-
         switch (Key)
         {
         case 'L':              //Toggle backlight
@@ -212,6 +204,10 @@ void loop()
             break;
         case 'C': //Clear display and data
             clear();
+            break;
+        case 'D': //Switch between RAD and DEG
+            useRAD = !useRAD;
+            trigonometryUpdate();
             break;
         default:
             break;
@@ -252,19 +248,19 @@ void calculate() //Calculate result
         break;
     case 'R': //sqrt
         result = sqrtf(FirstNumber.toDouble());
-        drawSNResult();
+        drawResultUI();
         break;
     case 'S': //sin
-        result = sin(radians(FirstNumber.toDouble()));
-        drawSNResult();
+        result = sin(trigonometrySwitch(FirstNumber.toDouble()));
+        drawResultUI();
         break;
     case 'O': //cos
-        result = cos(radians(FirstNumber.toDouble()));
-        drawSNResult();
+        result = cos(trigonometrySwitch(FirstNumber.toDouble()));
+        drawResultUI();
         break;
-    case 'T': //tg
-        result = tan(radians(FirstNumber.toDouble()));
-        drawSNResult();
+    case 'T': //tan
+        result = tan(trigonometrySwitch(FirstNumber.toDouble()));
+        drawResultUI();
         break;
     case '!':
         if (FirstNumber.toInt() < 15 && FirstNumber.toInt() > -15) //Arduino can't calculate factorial for
@@ -288,22 +284,19 @@ void calculatePercentages() //Calculate result for expression with percentages
     {
     case '+':
         result = FirstNumber.toDouble() + ((FirstNumber.toDouble() / 100 * SecondNumber.toDouble()));
-        drawResultUI();
         break;
     case '-':
         result = FirstNumber.toDouble() - ((FirstNumber.toDouble() / 100 * SecondNumber.toDouble()));
-        drawResultUI();
         break;
     case '*':
         result = (FirstNumber.toDouble() / 100 * SecondNumber.toDouble());
-        drawResultUI();
         break;
     case '/':
         result = (FirstNumber.toDouble() / 100 * SecondNumber.toDouble());
-        drawResultUI();
         break;
     default:
         break;
+        drawResultUI();
     }
 }
 
@@ -318,7 +311,7 @@ void calculateFactorial() //Calculate factorial
     {
         for (factorialCount = 1; factorialCount < FirstNumber.toInt(); factorialCount++) //Calculate factorial
         {
-            factorialResult = factorialResult * factorialCount; //n! = 1 * 2 * 3  * ... * n
+            factorialResult = factorialResult * factorialCount; //n! = 1 * 2 * ... * n
         }
     }
     FactorialFlag = true;
@@ -327,20 +320,53 @@ void calculateFactorial() //Calculate factorial
 
 void drawResultUI()
 {
-
-    if (isnan(result) || isinf(result) || result > 4294967040 || result < -4294967040)
+    if (isnan(result) || isinf(result) || result > 4294967040 || result < -4294967040) //Print error message if number is invalid
     {
         drawMessage("ERROR: Overflow");
+    }
+    else if (SNE.indexOf(action) != -1)
+    {
+        lcd.home();
+        lcd.clear();    //Clear display
+        switch (action) //Display operator
+        {
+        case 'R':
+            lcd.print("sqrt(");
+            break;
+        case 'S':
+            lcd.print("sin(");
+            break;
+        case 'O':
+            lcd.print("cos(");
+            break;
+        case 'T':
+            lcd.print("tan(");
+            break;
+        default:
+            break;
+        }
+        lcd.print(stringConvert(FirstNumber)); //Display first number
+        if (action == '!')
+        {
+            lcd.print(action);
+        }
+        else
+        {
+            lcd.print(')');
+        }
+        lcd.setCursor(0, 1);
+        lcd.print('=');
+        printResult(); //Display result
     }
     else
     {
         lcd.clear();
         lcd.home();
-        if ((FirstNumber.length()) + (SecondNumber.length()) + 1 <= 20) //If both numbers can fit on same lane
+        if ((FirstNumber.length()) + (SecondNumber.length()) + 2 <= 17) //If both numbers can fit on same lane
         {
-            lcd.print(FirstNumber); //Draw layout for short numbers
+            lcd.print(stringConvert(FirstNumber)); //Draw layout for short numbers
             lcd.print(action);
-            lcd.print(SecondNumber);
+            lcd.print(stringConvert(SecondNumber));
             if (PercentFlag)
             {
                 lcd.print('%');
@@ -359,60 +385,20 @@ void drawResultUI()
             SafeToDrawMessage = false;
         }
     }
-}
-
-void drawSNResult() //Display result for expression which requires only one number
-{
-    if (isnan(result) || isinf(result) || result > 4294967040 || result < -4294967040)
-    {
-        drawMessage("ERROR: Overflow");
-    }
-    else
-    {
-        lcd.home();
-        lcd.clear();    //Clear display
-        switch (action) //Display operator
-        {
-        case 'R':
-            lcd.print("sqrt(");
-            break;
-        case 'S':
-            lcd.print("sin(");
-            break;
-        case 'O':
-            lcd.print("cos(");
-            break;
-        case 'T':
-            lcd.print("tg(");
-            break;
-        default:
-            break;
-        }
-        lcd.print(FirstNumber); //Display first number
-        lcd.print(')');
-        lcd.setCursor(0, 1);
-        lcd.print('=');
-        printResult(); //Display result
-        FirstNumber = String(result);
-        SecondNumber = "";
-    }
+    trigonometryUpdate();
 }
 
 void clear() //Reset data and update display
 {
-    lcd.clear(); //Display default layout
-    lcd.setCursor(0, 1);
-    lcd.print("Operation: ");
-    lcd.setCursor(0, 0);
     FirstNumber = ""; //Reset data
     SecondNumber = "";
     result = 0;
     action = ' ';
     ModifyingFirstNumber = true;
-    SafeToDrawMessage = true;
     FactorialFlag = false;
     gotResult = false;
     PercentFlag = false;
+    redraw();
     drawMessage("Cleared"); //Display message
 }
 
@@ -424,6 +410,7 @@ void redraw() //Update display (redraw default layout)
     lcd.setCursor(0, 1);
     lcd.print("Operation: "); //Display operator
     lcd.print(action);
+    trigonometryUpdate();
     lcd.setCursor(0, 2);
     lcd.print(SecondNumber); //Display second number
     if (PercentFlag)         //Display '%' if needed
@@ -462,11 +449,25 @@ void printResult() //Print result in long data type (if possible)
     }
     if (FactorialFlag)
     {
-        lcd.print(factorialResult);
+        lcd.print(long(factorialResult));
         FirstNumber = String(factorialResult);
     }
     SecondNumber = "";
     gotResult = true;
+}
+
+void trigonometryUpdate() //Update trigonometry settings on display
+{
+    lcd.setCursor(17, 1);
+    if (useRAD)
+    {
+        lcd.print("RAD");
+    }
+    else
+    {
+        lcd.print("DEG");
+    }
+    setCursor();
 }
 
 int drawMessage(String tmp) //Display message
@@ -480,5 +481,27 @@ int drawMessage(String tmp) //Display message
         lcd.print("                    ");
         setCursor(); //Set cursor to correct position
         tmp = "";
+    }
+}
+
+double trigonometrySwitch(double trigonometryConvert) //Switch between DEG and RAD
+{
+    if (useRAD) //If we want radians
+    {
+        return trigonometryConvert; //return radians
+    }
+    else //If we want degrees
+    {
+        return radians(trigonometryConvert); //convert to degrees
+    }
+}
+
+String stringConvert(String tmp) {
+    if (tmp.toInt() == tmp.toDouble()) {
+        return String(tmp.toInt());
+    }
+    else
+    {
+        return String(tmp.toDouble());
     }
 }
