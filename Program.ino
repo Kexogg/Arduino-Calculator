@@ -182,8 +182,6 @@ void loop()
                 drawMessage("Switched numbers"); //Display message
                 tmp = "";
                 break;
-            default:
-                break;
             }
         }
         switch (Key)
@@ -209,8 +207,6 @@ void loop()
             useRAD = !useRAD;
             trigonometryUpdate();
             break;
-        default:
-            break;
         }
     }
 }
@@ -221,15 +217,12 @@ void calculate() //Calculate result
     {
     case '+':
         result = FirstNumber.toDouble() + SecondNumber.toDouble();
-        drawResultUI();
         break;
     case '-':
         result = FirstNumber.toDouble() - SecondNumber.toDouble();
-        drawResultUI();
         break;
     case '*':
         result = FirstNumber.toDouble() * SecondNumber.toDouble();
-        drawResultUI();
         break;
     case '/':
         if (SecondNumber.toDouble() == 0) //If second number equals 0
@@ -244,23 +237,18 @@ void calculate() //Calculate result
         break;
     case '^':
         result = pow(FirstNumber.toDouble(), SecondNumber.toDouble());
-        drawResultUI();
         break;
     case 'R': //sqrt
         result = sqrtf(FirstNumber.toDouble());
-        drawResultUI();
         break;
     case 'S': //sin
         result = sin(trigonometrySwitch(FirstNumber.toDouble()));
-        drawResultUI();
         break;
     case 'O': //cos
         result = cos(trigonometrySwitch(FirstNumber.toDouble()));
-        drawResultUI();
         break;
     case 'T': //tan
         result = tan(trigonometrySwitch(FirstNumber.toDouble()));
-        drawResultUI();
         break;
     case '!':
         if (FirstNumber.toInt() < 15 && FirstNumber.toInt() > -15) //Arduino can't calculate factorial for
@@ -272,8 +260,10 @@ void calculate() //Calculate result
             drawMessage("ERROR: Overflow"); //Display error message if number is <-14 or >14
         }
         break;
-    default:
-        break;
+    }
+    if (action != '!' && action != '/')
+    {
+        drawResultUI();
     }
 }
 
@@ -293,8 +283,6 @@ void calculatePercentages() //Calculate result for expression with percentages
         break;
     case '/':
         result = (FirstNumber.toDouble() / 100 * SecondNumber.toDouble());
-        break;
-    default:
         break;
         drawResultUI();
     }
@@ -341,8 +329,6 @@ void drawResultUI()
             break;
         case 'T':
             lcd.print("tan(");
-            break;
-        default:
             break;
         }
         lcd.print(stringConvert(FirstNumber)); //Display first number
@@ -496,8 +482,10 @@ double trigonometrySwitch(double trigonometryConvert) //Switch between DEG and R
     }
 }
 
-String stringConvert(String tmp) {
-    if (tmp.toInt() == tmp.toDouble()) {
+String stringConvert(String tmp)
+{
+    if (tmp.toInt() == tmp.toDouble())
+    {
         return String(tmp.toInt());
     }
     else
