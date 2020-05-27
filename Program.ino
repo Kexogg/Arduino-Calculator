@@ -1,5 +1,5 @@
 /*
-Arduino calculator v 1.2
+Arduino calculator v 1.3
 By Alexander Mazhirin
 My e-mail: kexogg@gmail.com
 GitHub page: https://github.com/Kexogg/Arduino-Calculator
