@@ -284,8 +284,8 @@ void calculatePercentages() //Calculate result for expression with percentages
     case '/':
         result = (FirstNumber.toDouble() / 100 * SecondNumber.toDouble());
         break;
-        drawResultUI();
     }
+    drawResultUI();
 }
 
 void calculateFactorial() //Calculate factorial
